@@ -1,4 +1,4 @@
-o#!/bin/bash
+#!/bin/bash
 
 PIN_FILE="/tmp/fido2_pin_cache"
 
@@ -32,9 +32,9 @@ if [ -z "$PIN" ]; then
 fi
 
 if [ "$MODE" = "encrypt" ]; then
-  ./fido2-derive --mode=enc --pin="$PIN"
+  ./fido2-derive --mode=enc --pin="$PIN" --key-only
 elif [ "$MODE" = "decrypt" ]; then
-  ./fido2-derive --mode=dec --pin="$PIN"
+  ./fido2-derive --mode=dec --pin="$PIN" --key-only
 else
   echo "Invalid mode: $MODE" >&2
   exit 1
