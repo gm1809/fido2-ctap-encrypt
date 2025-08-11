@@ -1,9 +1,20 @@
-#!/bin/bash
-# e2e-git-init: Setup Git filter, pre-commit hook, and 'git dec' alias (no post-checkout)
+#!/usr/bin/env bash
+# e2e-git-init: Setup Git filter, pre-commit hook, and 'git dec' alias.
+# Optional: when sourced with --with-pin, prompt PIN and export FIDO2_PIN.
 
 set -euo pipefail
 
-# 1) Ensure we're inside a Git repo
+is_sourced() {
+  # true if this file is being sourced
+  [[ "${BASH_SOURCE[0]}" != "${0}" ]]
+}
+
+want_pin=false
+for arg in "${@:-}"; do
+  [[ "$arg" == "--with-pin" ]] && want_pin=true
+done
+
+# 1) Ensure we're inside a Git repo (only check when executed, not sourced into non-git shell)
 if ! git rev-parse --git-dir >/dev/null 2>&1; then
   echo "[!] Not inside a Git repository."
   exit 1
@@ -44,3 +55,47 @@ git config alias.dec '!f(){ for f in "$@"; do rm -f -- "$f"; git checkout -- "$f
 
 echo "[✓] E2E Git initialized: filter=crypt, pre-commit installed, alias 'git dec' ready."
 echo "    Mark files to encrypt via .gitattributes (e.g., 'secrets/** filter=crypt')."
+
+########################################
+# Optional: PIN handling (ENV caching)
+########################################
+
+# helper functions are only useful when sourced (so they persist in the shell)
+if is_sourced; then
+  e2e_pin() {
+    local pin
+    pin=$(pinentry-gtk-2 --title "FIDO2 PIN" --description "Bitte FIDO2-PIN eingeben." <<'EOF' | awk -F'^D ' '/^D /{print $2}'
+GETPIN
+EOF
+) || { echo "[!] PIN-Eingabe abgebrochen."; return 1; }
+
+    if [[ -z "$pin" ]]; then
+      echo "[!] Keine PIN eingegeben."
+      return 1
+    fi
+    export FIDO2_PIN="$pin"
+    echo "[+] FIDO2_PIN in aktueller Shell gesetzt (vergiss 'e2e_unpin' nicht)."
+    return 0
+  }
+
+  e2e_unpin() {
+    unset FIDO2_PIN
+    echo "[+] FIDO2_PIN gelöscht."
+  }
+
+  # if user requested --with-pin and we are sourced: ask now
+  if $want_pin; then
+    e2e_pin || { echo "[!] Konnte FIDO2_PIN nicht setzen."; return 1; }
+  else
+    echo "ℹ️  Optional: 'e2e_pin' eingeben, um FIDO2_PIN in dieser Shell zu setzen; 'e2e_unpin' zum Entfernen."
+  fi
+else
+  # not sourced — cannot export into caller env
+  if $want_pin; then
+    echo "⚠️  '--with-pin' wurde übergeben, aber das Skript wurde *nicht* via 'source' gestartet."
+    echo "    Bitte ausführen als:  source ./e2e-init --with-pin"
+  else
+    echo "ℹ️  Möchtest du FIDO2_PIN für diese Session cachen? Starte stattdessen:  source ./e2e-init --with-pin"
+  fi
+fi
+
