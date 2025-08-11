@@ -25,5 +25,4 @@ if [ -z "$PIN" ]; then
 fi
 
 # Decrypt the content
-./fido2-derive --mode=dec --pin="$PIN"
-
+./fido2-derive --mode=dec --pin="$PIN" --key-only
