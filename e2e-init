@@ -1,34 +1,77 @@
-#!/usr/bin/env bash
-# e2e-git-init: Setup Git filter, pre-commit hook, and 'git dec' alias.
-# Optional: when sourced with --with-pin, prompt PIN and export FIDO2_PIN.
+# e2e-init
+# Setup Git filter, pre-commit hook, and 'git dec' alias.
+# Works with bash *and* zsh. Optional: when *sourced* with --with-pin,
+# it asks once for the PIN and exports FIDO2_PIN in the current shell.
 
-set -euo pipefail
+# ===== shell options (bash/zsh) =====
+if [ -n "${BASH_VERSION:-}" ]; then
+  set -euo pipefail
+elif [ -n "${ZSH_VERSION:-}" ]; then
+  set -euo pipefail
+else
+  set -eu
+fi
 
+# ----- detect if this file is sourced -----
 is_sourced() {
-  # true if this file is being sourced
-  [[ "${BASH_SOURCE[0]}" != "${0}" ]]
+  if [ -n "${BASH_VERSION:-}" ]; then
+    [[ "${BASH_SOURCE[0]}" != "$0" ]]
+    return
+  fi
+  if [ -n "${ZSH_VERSION:-}" ]; then
+    # zsh sets this when sourcing
+    case ${ZSH_EVAL_CONTEXT:-} in *:file) return 0;; esac
+    return 1
+  fi
+  return 1
 }
 
+# ----- pretty exit/return -----
+die() { echo "[!] $*" >&2; if is_sourced; then return 1; else exit 1; fi; }
+
+# ----- args -----
 want_pin=false
 for arg in "${@:-}"; do
-  [[ "$arg" == "--with-pin" ]] && want_pin=true
+  [ "$arg" = "--with-pin" ] && want_pin=true
 done
 
-# 1) Ensure we're inside a Git repo (only check when executed, not sourced into non-git shell)
-if ! git rev-parse --git-dir >/dev/null 2>&1; then
-  echo "[!] Not inside a Git repository."
-  exit 1
-fi
+# ===== helpers for PIN handling (usable only when sourced) =====
+e2e_pin() {
+  # If FIDO2_PIN already set, keep it
+  if [ -n "${FIDO2_PIN:-}" ]; then
+    echo "[i] FIDO2_PIN ist bereits gesetzt."
+    return 0
+  fi
+  # pinentry dialog (no disk writes)
+  local pin
+  pin=$(pinentry-gtk-2 --title "FIDO2 PIN" --description "Bitte FIDO2-PIN eingeben." <<'EOF' \
+    | awk -F'^D ' '/^D /{print $2}'
+GETPIN
+EOF
+) || { echo "[!] PIN-Eingabe abgebrochen."; return 1; }
 
-# 2) Basic sanity checks
-if [[ ! -x "./filter-wrapper.sh" ]]; then
-  echo "[!] ./filter-wrapper.sh not found or not executable (needed for smudge=decrypt)."
-  echo "    Make sure it's present and 'chmod +x filter-wrapper.sh'."
-  exit 1
-fi
+  if [ -z "$pin" ]; then
+    echo "[!] Keine PIN eingegeben."
+    return 1
+  fi
+  export FIDO2_PIN="$pin"
+  echo "[+] FIDO2_PIN in aktueller Shell gesetzt. (Mit 'e2e_unpin' wieder entfernen.)"
+}
+
+e2e_unpin() {
+  unset FIDO2_PIN
+  echo "[+] FIDO2_PIN gelöscht."
+}
+
+# ===== main setup =====
+# 1) Ensure we are inside a Git repo
+git rev-parse --git-dir >/dev/null 2>&1 || die "Nicht in einem Git-Repository."
+
+# 2) Sanity checks
+[ -x "./filter-wrapper.sh" ] || die "./filter-wrapper.sh fehlt oder ist nicht ausführbar (chmod +x)."
 
 # 3) Configure Git filter
-echo "[+] Configuring Git filter 'crypt'..."
+echo "[+] Konfiguriere Git-Filter 'crypt' (smudge=decrypt, clean=cat)…"
 git config filter.crypt.smudge "./filter-wrapper.sh decrypt"
 git config filter.crypt.clean "cat"
 git config filter.crypt.required true
@@ -38,64 +81,35 @@ HOOKS_DIR="$(git rev-parse --git-path hooks)"
 PRE_COMMIT_SOURCE="pre-commit"
 PRE_COMMIT_TARGET="$HOOKS_DIR/pre-commit"
 
-if [[ ! -f "$PRE_COMMIT_SOURCE" ]]; then
-  echo "[!] 'pre-commit' file not found in current directory."
-  exit 1
-fi
-
-echo "[+] Installing pre-commit hook..."
+[ -f "$PRE_COMMIT_SOURCE" ] || die "'pre-commit' Datei nicht im Arbeitsverzeichnis gefunden."
+echo "[+] Installiere pre-commit Hook…"
 mkdir -p "$HOOKS_DIR"
 cp "$PRE_COMMIT_SOURCE" "$PRE_COMMIT_TARGET"
 chmod +x "$PRE_COMMIT_TARGET"
 
 # 5) Add 'git dec' alias (decrypt one or more files via smudge)
 #    Usage: git dec path/to/file1 [file2...]
-echo "[+] Adding 'git dec' alias..."
+echo "[+] Richte Git-Alias 'dec' ein…"
 git config alias.dec '!f(){ for f in "$@"; do rm -f -- "$f"; git checkout -- "$f"; done; }; f'
 
-echo "[✓] E2E Git initialized: filter=crypt, pre-commit installed, alias 'git dec' ready."
-echo "    Mark files to encrypt via .gitattributes (e.g., 'secrets/** filter=crypt')."
+echo "[✓] E2E Git initialisiert: filter=crypt, pre-commit installiert, Alias 'git dec' bereit."
+echo "    Markiere Dateien via .gitattributes (z. B. 'secrets/** filter=crypt')."
 
-########################################
-# Optional: PIN handling (ENV caching)
-########################################
-
-# helper functions are only useful when sourced (so they persist in the shell)
+# ===== optional: PIN in aktueller Shell setzen =====
 if is_sourced; then
-  e2e_pin() {
-    local pin
-    pin=$(pinentry-gtk-2 --title "FIDO2 PIN" --description "Bitte FIDO2-PIN eingeben." <<'EOF' | awk -F'^D ' '/^D /{print $2}'
-GETPIN
-EOF
-) || { echo "[!] PIN-Eingabe abgebrochen."; return 1; }
+  # make helpers available to the user shell
+  export -f e2e_pin e2e_unpin 2>/dev/null || true
 
-    if [[ -z "$pin" ]]; then
-      echo "[!] Keine PIN eingegeben."
-      return 1
-    fi
-    export FIDO2_PIN="$pin"
-    echo "[+] FIDO2_PIN in aktueller Shell gesetzt (vergiss 'e2e_unpin' nicht)."
-    return 0
-  }
-
-  e2e_unpin() {
-    unset FIDO2_PIN
-    echo "[+] FIDO2_PIN gelöscht."
-  }
-
-  # if user requested --with-pin and we are sourced: ask now
   if $want_pin; then
     e2e_pin || { echo "[!] Konnte FIDO2_PIN nicht setzen."; return 1; }
   else
     echo "ℹ️  Optional: 'e2e_pin' eingeben, um FIDO2_PIN in dieser Shell zu setzen; 'e2e_unpin' zum Entfernen."
   fi
 else
-  # not sourced — cannot export into caller env
   if $want_pin; then
-    echo "⚠️  '--with-pin' wurde übergeben, aber das Skript wurde *nicht* via 'source' gestartet."
-    echo "    Bitte ausführen als:  source ./e2e-init --with-pin"
-  else
-    echo "ℹ️  Möchtest du FIDO2_PIN für diese Session cachen? Starte stattdessen:  source ./e2e-init --with-pin"
+    echo "⚠️  '--with-pin' wurde übergeben, aber das Skript wurde nicht via 'source' gestartet."
+    echo "    Bitte so aufrufen, um die PIN im aktuellen Terminal zu cachen:"
+    echo "      source ./e2e-init --with-pin"
   fi
 fi
 
