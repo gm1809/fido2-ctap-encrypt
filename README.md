@@ -12,6 +12,11 @@ First, configure the repository with the required Git filters, hooks, and alias 
 ```bash
 ./e2e-init
 ```
+Optionally, to cache the pin in the FIDO2_PIN environment variable, you need to run the script as following:
+
+```bash
+source ./e2e-init --with-pin 
+```
 ## How It Works
 
 ### 1. Pre-Commit Hook - Encryption
