@@ -1,22 +1,18 @@
 #!/bin/bash
-# filter-wrapper.sh - Smudge-only version
-
-PIN_FILE="/tmp/fido2_pin_cache"
+# filter-wrapper.sh - Smudge-only version (uses $FIDO2_PIN if set)
 
 get_pin() {
-    if [ -f "$PIN_FILE" ]; then
-        cat "$PIN_FILE"
+    # If PIN is set in environment, use it
+    if [ -n "${FIDO2_PIN:-}" ]; then
+        echo "$FIDO2_PIN"
         return
     fi
-    
+
+    # Otherwise, ask via pinentry
     pin=$(pinentry-gtk-2 --title "FIDO2 PIN" --description "Bitte gib deinen FIDO2-PIN ein." <<EOF | grep ^D | cut -c3-
 GETPIN
 EOF
 )
-    
-    if [ -n "$pin" ]; then
-        echo "$pin" > "$PIN_FILE"
-    fi
     echo "$pin"
 }
 
