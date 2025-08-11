@@ -1,2 +1,2 @@
-# Encrypt everything by default
+# Add your own configuration on which file extions, folders,... etc to pass through the crypt filter!
 src/* filter=crypt
