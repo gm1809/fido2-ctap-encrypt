@@ -44,7 +44,7 @@ e2e_pin() {
   fi
   # pinentry dialog (no disk writes)
   local pin
-  pin=$(pinentry-gtk-2 --title "FIDO2 PIN" --description "Bitte FIDO2-PIN eingeben." <<'EOF' \
+  pin=$(pinentry-gtk-2 <<'EOF' \
     | awk -F'^D ' '/^D /{print $2}'
 GETPIN
 EOF

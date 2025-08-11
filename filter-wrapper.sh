@@ -9,7 +9,7 @@ get_pin() {
     fi
 
     # Otherwise, ask via pinentry
-    pin=$(pinentry-gtk-2 --title "FIDO2 PIN" --description "Bitte gib deinen FIDO2-PIN ein." <<EOF | grep ^D | cut -c3-
+    pin=$(pinentry-gtk-2 <<EOF | grep ^D | cut -c3-
 GETPIN
 EOF
 )
