@@ -50,7 +50,7 @@ for file in "${FILES_TO_ENCRYPT[@]}"; do
   if [[ -f "$file" ]]; then
     echo "[pre-commit] Encrypting: $file"
     tmp="$(mktemp)"
-    if ./fido2-derive --mode=enc --pin="$PIN" < "$file" > "$tmp"; then
+    if ./fido2-derive --mode=enc --pin="$PIN" --key-only < "$file" > "$tmp"; then
       mv -f -- "$tmp" "$file"
       git add -- "$file"
       RESTAGE_NEEDED=true
